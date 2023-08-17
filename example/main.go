@@ -1,8 +1,6 @@
 package main
 
 import (
-	"errors"
-
 	_ "embed"
 
 	"github.com/solarlune/tetra3d"
@@ -10,23 +8,18 @@ import (
 	"github.com/solarlune/tetraflow"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
 type Game struct {
 	Width, Height  int
 	Library        *tetra3d.Library
-	Scene          *tetra3d.Scene
 	DrawDebugDepth bool
 	DrawDebugStats bool
 
-	Flow *tetraflow.EngineFlow
+	Engine *tetraflow.Engine
 }
 
-// The goal of this example is to make a simple quickstart project for basing new projects off of.
-// In this example, the Tetra3D icon spins in the center of the screen. It is shadeless, so you would
-// either need to add a light to the scene, use other shadeless materials, or disable lighting on the
-// scene to be able to see other new objects.
+// The goal of this example is to make a simple example project for use of TetraFlow.
 
 //go:embed startingScene.gltf
 var startingGLTF []byte
@@ -59,81 +52,51 @@ func (g *Game) Init() {
 
 	}
 
-	g.Scene = g.Library.ExportedScene.Clone()
-
 	// OK, so we'll create a new Flow.
-	// A Flow essentially handles calling OnUpdate(), OnAdd(), and OnRemove() on objects in the scene tree.
+	// A Flow essentially handles updating an engine and instantiating scenes.
 
-	// You create a Flow by specifying the Scene it's running on, and a registry function to be called.
+	// You create a Flow by specifying the Scene it should clone, and a registry function to be called.
 
 	// The Registry function is a function that you define that will return a struct that will be placed in
 	// relevant nodes' Data pointers, and these objects are the "game logic objects" for your game.
+	// Nodes will only be populated with IReceiver objects if they don't have anything in their Data() spots already.
 
-	g.Flow = tetraflow.NewEngineFlow(
-		g.Scene,
-		func(node tetra3d.INode) any {
+	g.Engine = tetraflow.NewEngine(g.Library, func(node tetra3d.INode) tetraflow.IReceiver {
 
-			if node.Properties().Has("gameobject") {
-				switch node.Properties().Get("gameobject").AsString() {
-				case "player":
-					return NewPlayer(node)
-				case "enemy":
-					return NewEnemy(node)
-				}
+		if node.Properties().Has("gameobject") {
+			switch node.Properties().Get("gameobject").AsString() {
+			case "player":
+				return NewPlayer(node, g)
+			case "enemy":
+				return NewEnemy(node)
+			case "system":
+				return NewSystem(node, g)
 			}
+		}
 
-			return nil
+		return nil
 
-		},
-	)
+	})
+
+	layer := g.Engine.AddStage("Game")
+	layer.SetSceneByName("Level")
 
 }
 
 func (g *Game) Update() error {
-
-	var err error
-
-	// Quit
-	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
-		err = errors.New("quit")
-	}
-
-	// Fullscreen
-	if inpututil.IsKeyJustPressed(ebiten.KeyF4) {
-		ebiten.SetFullscreen(!ebiten.IsFullscreen())
-	}
-
-	// Restart
-	if ebiten.IsKeyPressed(ebiten.KeyR) {
-		// Restarting is done here by simply recloning the scene; a better, more memory-efficient way to do this would be to simply
-		// re-place the player in his original location, for example.
-		g.Init()
-	}
-
-	// Debug stuff
-
-	if inpututil.IsKeyJustPressed(ebiten.KeyF1) {
-		g.DrawDebugStats = !g.DrawDebugStats
-	}
-
-	if inpututil.IsKeyJustPressed(ebiten.KeyF5) {
-		g.DrawDebugDepth = !g.DrawDebugDepth
-	}
-
-	// The engine flow code updates here
-	g.Flow.Update()
-
-	return err
+	return g.Engine.Update()
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
 
-	screen.Fill(g.Scene.World.ClearColor.ToRGBA64())
+	scene := g.Engine.Stages[0].CurrentScene()
 
-	camera := g.Scene.Root.Get("Camera").(*tetra3d.Camera)
+	screen.Fill(scene.World.ClearColor.ToRGBA64())
+
+	camera := scene.Root.SearchTree().ByType(tetra3d.NodeTypeCamera).First().(*tetra3d.Camera)
 
 	camera.Clear()
-	camera.RenderNodes(g.Scene, g.Scene.Root)
+	camera.RenderScene(scene)
 
 	if g.DrawDebugDepth {
 		screen.DrawImage(camera.DepthTexture(), nil)
@@ -155,7 +118,7 @@ func (g *Game) Layout(w, h int) (int, int) {
 
 func main() {
 
-	ebiten.SetWindowTitle("Tetra3d - Quickstart Project")
+	ebiten.SetWindowTitle("TetraFlow Test Project")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 
 	game := NewGame()
