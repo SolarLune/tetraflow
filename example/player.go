@@ -30,7 +30,6 @@ func (player *Player) ReceiveMessage(msg messages.IMessage) {
 	switch message := msg.(type) {
 
 	case messages.AddToScene:
-		fmt.Println(message)
 		fmt.Println("You're alive!")
 	case messages.SceneStart:
 		fmt.Println("Scene Start! Scene Name: " + message.Scene.Name)

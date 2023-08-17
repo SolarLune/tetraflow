@@ -84,9 +84,7 @@ func (stage *Stage) Update() {
 
 				}
 
-				_, ok := node.Data().(IReceiver)
-
-				if ok {
+				if _, ok := node.Data().(IReceiver); ok {
 					stage.receivers = append(stage.receivers, node)
 				}
 
@@ -98,7 +96,7 @@ func (stage *Stage) Update() {
 		if justStarted {
 
 			for _, g := range stage.receivers {
-				g.Data().(IReceiver).ReceiveMessage(messages.SceneStart{Scene: stage.scene})
+				stage.engine.handleMessage(messages.SceneStart{Scene: stage.scene}, g.Data().(IReceiver))
 			}
 
 		}
@@ -116,10 +114,10 @@ func (stage *Stage) Update() {
 			receiver := node.Data().(IReceiver)
 
 			if !existed {
-				receiver.ReceiveMessage(messages.AddToScene{Scene: stage.scene})
+				stage.engine.handleMessage(messages.AddToScene{Scene: stage.scene}, receiver)
 			}
 
-			receiver.ReceiveMessage(messages.Update{})
+			stage.engine.handleMessage(messages.Update{}, receiver)
 
 			node.AnimationPlayer().Update(dt)
 
@@ -134,7 +132,7 @@ func (stage *Stage) Update() {
 				}
 			}
 			if !stillExists {
-				node.Data().(IReceiver).ReceiveMessage(messages.RemoveFromScene{Scene: stage.scene})
+				stage.engine.handleMessage(messages.RemoveFromScene{Scene: stage.scene}, node.Data().(IReceiver))
 			}
 		}
 
@@ -172,10 +170,9 @@ func (stage *Stage) End() {
 	stage.started = false
 	stage.Active = false
 
-	stage.prevReceivers = make([]tetra3d.INode, 0, len(stage.prevReceivers))
-
 	for _, g := range stage.receivers {
-		g.Data().(IReceiver).ReceiveMessage(messages.SceneEnd{Scene: stage.scene})
+		// g.Data().(IReceiver).ReceiveMessage(messages.SceneEnd{Scene: stage.scene})
+		stage.engine.handleMessage(messages.SceneEnd{Scene: stage.scene}, g.Data().(IReceiver))
 	}
 
 }
@@ -351,7 +348,8 @@ func (engine *Engine) SendMessage(msg messages.IMessage) {
 
 	for _, stage := range engine.Stages {
 		for _, node := range stage.receivers {
-			node.Data().(IReceiver).ReceiveMessage(msg)
+			// node.Data().(IReceiver).ReceiveMessage(msg)
+			engine.handleMessage(msg, node.Data().(IReceiver))
 		}
 	}
 
@@ -363,11 +361,22 @@ func (engine *Engine) SendMessageToTargets(msg messages.IMessage, targets ...tet
 	for _, node := range targets {
 
 		if g, ok := node.Data().(IReceiver); ok {
-			g.ReceiveMessage(msg)
+			engine.handleMessage(msg, g)
 		}
 
 	}
 
+}
+
+func (engine *Engine) handleMessage(msg messages.IMessage, target IReceiver) {
+	if subscriber, ok := target.(messages.ISubscriber); ok {
+		subscriptions := subscriber.Subscribe()
+		if msg.Type().Contains(subscriptions) {
+			target.ReceiveMessage(msg)
+		}
+	} else {
+		target.ReceiveMessage(msg)
+	}
 }
 
 // Quit queues the engine to quit gracefully.
